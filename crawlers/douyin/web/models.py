@@ -184,6 +184,26 @@ class PostRelated(BaseRequestModel):
 class PostDetail(BaseRequestModel):
     aweme_id: str
 
+class SearchVideo(BaseRequestModel):
+    keyword: str
+    offset: int = 0
+    count: int = 20
+    sort_type: int = 0
+    publish_time: int = 0
+    filter_duration: int = 0
+    search_id: str = ""
+    search_channel: str = "aweme_video_web"
+    search_source: str = "normal_search"
+    enable_history: int = 1
+    query_correct_type: int = 1
+    is_filter_search: int = 0
+    need_filter_settings: int = 1
+    from_group_id: str = ""
+    disable_rs: int = 0
+    list_type: str = "single"
+    pc_search_top_1_params: str = '{"enable_ai_search_top_1":1}'
+    support_h265: int = 1
+    support_dash: int = 1
 
 class PostComments(BaseRequestModel):
     aweme_id: str

@@ -9,6 +9,70 @@ from crawlers.douyin.web.web_crawler import DouyinWebCrawler  # 导入抖音Web�
 router = APIRouter()
 DouyinWebCrawler = DouyinWebCrawler()
 
+# 根据关键词搜索
+@router.get("/search_video", response_model=ResponseModel, summary="搜索视频/Search video by keyword")
+async def search_video(request: Request,
+                         keyword: str = Query(example="哪吒之魔童闹海", description="搜索关键词/Search keyword"),
+                         offset: int = Query(default=0, example=0, description="分页偏移量/Page offset"),
+                         count: int = Query(default=20, example=20, description="每页数量/Count per page"),
+                         sort_type: int = Query(default=0, example=0, description="排序类型/Sort type (0=综合, 1=最多点赞, 2=最新)"),
+                         publish_time: int = Query(default=0, example=0, description="发布时间/Publish time (0=不限, 1=一天内, 7=一周内, 180=半年内)"),
+                         filter_duration: int = Query(default=0, example=0, description="视频时长/Video duration (0=不限, 1-0=1分钟以内, 1-5=1-5分钟, 5-10000=5分钟以上)"),
+                         search_id: str = Query(default="", example="", description="搜索id(翻页必需)/Search id (required for pagination)"),
+                         need_filter_settings: int = Query(default=1, example=1, description="是否需要筛选设置/Need filter settings (1=第一页, 0=翻页)")):
+    """
+    # [中文]
+    ### 用途:
+    - 根据关键字搜索抖音视频
+    - 支持翻页：第一页搜索返回结果中包含 `search_id`，翻页时需要传入此参数
+
+    ### 参数:
+    - keyword: 搜索关键词
+    - offset: 分页偏移量 (0, 20, 30...)
+    - count: 每页数量 (默认20, 翻页建议10)
+    - sort_type: 排序类型 (0=综合, 1=最多点赞, 2=最新)
+    - publish_time: 发布时间 (0=不限, 1=一天内, 7=一周内, 180=半年内)
+    - filter_duration: 视频时长 (0=不限, 1-0=1分钟以内, 1-5=1-5分钟, 5-10000=5分钟以上)
+    - search_id: 搜索ID (第一页不需要, 翻页时需要传第一页返回的 search_id)
+    - need_filter_settings: 是否需要筛选设置 (1=第一页, 0=翻页)
+
+    ### 返回:
+    - 视频搜索数据
+
+    # [English]
+    ### Purpose:
+    - Search Douyin videos by keyword
+    - Pagination support: First page returns `search_id`, which is required for subsequent pages
+
+    ### Parameters:
+    - keyword: Search keyword
+    - offset: Page offset (0, 20, 30...)
+    - count: Count per page (default 20, suggest 10 for pagination)
+    - sort_type: Sort type (0=Comprehensive, 1=Most liked, 2=Latest)
+    - publish_time: Publish time (0=All, 1=1 day, 7=1 week, 180=Half year)
+    - filter_duration: Video duration (0=All, 1-0=1-1min, 1-5=1-5min, 5-10000=5+min)
+    - search_id: Search ID (not needed for first page, required for pagination)
+    - need_filter_settings: Need filter settings (1=first page, 0=next pages)
+
+    ### Return:
+    - Video search data
+
+    # [示例/Example]
+    - 第一页: keyword = "哪吒之魔童闹海", offset = 0, count = 20, need_filter_settings = 1
+    - 第二页: keyword = "哪吒之魔童闹海", offset = 20, count = 10, search_id = "xxx", need_filter_settings = 0
+    """
+    try:
+        data = await DouyinWebCrawler.search_video(keyword, offset, count, sort_type, publish_time, filter_duration, search_id, need_filter_settings)
+        return ResponseModel(code=200,
+                             router=request.url.path,
+                             data=data)
+    except Exception as e:
+        status_code = 400
+        detail = ErrorResponseModel(code=status_code,
+                                    router=request.url.path,
+                                    params=dict(request.query_params),
+                                    )
+        raise HTTPException(status_code=status_code, detail=detail.dict())
 
 # 获取单个作品数据
 @router.get("/fetch_one_video", response_model=ResponseModel, summary="获取单个作品数据/Get single video data")

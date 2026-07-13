@@ -45,7 +45,7 @@ from crawlers.douyin.web.endpoints import DouyinAPIEndpoints
 # 抖音接口数据请求模型
 from crawlers.douyin.web.models import (
     BaseRequestModel, LiveRoomRanking, PostComments,
-    PostCommentsReply, PostDetail,
+    PostCommentsReply, PostDetail, SearchVideo,
     UserProfile, UserCollection, UserLike, UserLive,
     UserLive2, UserMix, UserPost
 )
@@ -84,6 +84,57 @@ class DouyinWebCrawler:
         return kwargs
 
     "-------------------------------------------------------handler接口列表-------------------------------------------------------"
+
+    async def search_video(self, keyword: str, offset: int = 0, count: int = 20, sort_type: int = 0, publish_time: int = 0, filter_duration: int = 0, search_id: str = "", need_filter_settings: int = 1):
+        # 获取抖音的实时Cookie
+        kwargs = await self.get_douyin_headers()
+
+        # 从Cookie中提取UIFID
+        cookie = kwargs["headers"]["Cookie"]
+        uifid = None
+        for item in cookie.split(";"):
+            if "UIFID=" in item:
+                uifid = item.split("UIFID=")[1].strip()
+                break
+        # print("提取的UIFID:", uifid)
+
+        # 追加自定义请求头
+        kwargs["headers"].update({
+            "accept": "application/json, text/plain, */*",
+            "priority": "u=1, i",
+            "sec-ch-ua": "\"Chromium\";v=\"90\", \"Google Chrome\";v=\"90\", \"Not/A)Brand\";v=\"99\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\"",
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "same-origin",
+        })
+        # 创建一个基础爬虫
+        base_crawler = BaseCrawler(proxies=kwargs["proxies"], crawler_headers=kwargs["headers"])
+        async with base_crawler as crawler:
+            # 创建一个搜索视频的BaseModel参数
+            params = SearchVideo(
+                keyword=keyword,
+                offset=offset,
+                count=count,
+                sort_type=sort_type,
+                publish_time=publish_time,
+                filter_duration=filter_duration,
+                search_id=search_id,
+                need_filter_settings=need_filter_settings
+            )
+            # 生成一个搜索视频的带有a_bogus加密参数的Endpoint
+            params_dict = params.dict()
+            # 使用动态生成的 msToken
+            params_dict["msToken"] = TokenManager().gen_real_msToken()
+            # 如果uifid不为空，追加到参数中
+            if uifid:
+                params_dict["uifid"] = uifid
+            a_bogus = BogusManager.ab_model_2_endpoint(params_dict, kwargs["headers"]["User-Agent"])
+            endpoint = f"{DouyinAPIEndpoints.VIDEO_SEARCH}?{urlencode(params_dict)}&a_bogus={a_bogus}"
+
+            response = await crawler.fetch_get_json(endpoint)
+        return response
 
     # 获取单个作品数据
     async def fetch_one_video(self, aweme_id: str):
