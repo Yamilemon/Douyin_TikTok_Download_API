@@ -209,6 +209,8 @@ class BaseCrawler:
                                          )
 
             except httpx.HTTPStatusError as http_error:
+                if await self.retry_forbidden_request(http_error, url, attempt + 1):
+                    continue
                 self.handle_http_status_error(http_error, url, attempt + 1)
 
             except APIError as e:
@@ -259,6 +261,8 @@ class BaseCrawler:
                 )
 
             except httpx.HTTPStatusError as http_error:
+                if await self.retry_forbidden_request(http_error, url, attempt + 1):
+                    continue
                 self.handle_http_status_error(http_error, url, attempt + 1)
 
             except APIError as e:
@@ -338,6 +342,33 @@ class BaseCrawler:
             )
             )
             raise APIResponseError(f"HTTP状态错误: {status_code}")
+
+    async def retry_forbidden_request(self, http_error, url: str, attempt: int) -> bool:
+        """Retry transient HTTP 403 responses before treating them as failures."""
+        response = getattr(http_error, "response", None)
+        status_code = getattr(response, "status_code", None)
+
+        if status_code != 403:
+            return False
+
+        if attempt >= self._max_retries:
+            logger.error(
+                "HTTP状态错误: {0}, URL: {1}, 尝试次数: {2}/{3}，重试次数已用尽".format(
+                    status_code, url, attempt, self._max_retries
+                )
+            )
+            return False
+
+        # A short exponential backoff avoids immediately repeating a request that
+        # may have been rejected transiently by Douyin's edge service.
+        delay = min(2 ** (attempt - 1), 4)
+        logger.warning(
+            "HTTP状态错误: {0}, URL: {1}, 尝试次数: {2}/{3}；{4} 秒后重试".format(
+                status_code, url, attempt, self._max_retries, delay
+            )
+        )
+        await asyncio.sleep(delay)
+        return True
 
     async def close(self):
         await self.aclient.aclose()

@@ -1,5 +1,7 @@
 from typing import List
 
+from crawlers.utils.logger import logger
+
 from fastapi import APIRouter, Body, Query, Request, HTTPException  # 导入FastAPI组件
 from app.api.models.APIResponseModel import ResponseModel, ErrorResponseModel  # 导入响应模型
 
@@ -104,6 +106,12 @@ async def fetch_one_video(request: Request,
                              router=request.url.path,
                              data=data)
     except Exception as e:
+        logger.exception(
+            "Douyin fetch_one_video failed: aweme_id=%s, error_type=%s, error=%s",
+            aweme_id,
+            type(e).__name__,
+            e,
+        )
         status_code = 400
         detail = ErrorResponseModel(code=status_code,
                                     router=request.url.path,

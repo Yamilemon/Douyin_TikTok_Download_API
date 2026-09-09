@@ -66,8 +66,10 @@ class TokenManager:
             "Content-Type": "application/json",
         }
 
-        transport = httpx.HTTPTransport(retries=5)
-        with httpx.Client(transport=transport, proxies=cls.proxies) as client:
+        transport = httpx.HTTPTransport(retries=3)
+        with httpx.Client(
+            transport=transport, proxies=cls.proxies, timeout=10.0
+        ) as client:
             try:
                 response = client.post(
                     cls.token_conf["url"], headers=headers, content=payload
@@ -78,30 +80,49 @@ class TokenManager:
 
                 return msToken
 
-            # except httpx.RequestError as exc:
-            #     # 捕获所有与 httpx 请求相关的异常情况 (Captures all httpx request-related exceptions)
-            #     raise APIConnectionError("请求端点失败，请检查当前网络环境。 链接：{0}，代理：{1}，异常类名：{2}，异常详细信息：{3}"
-            #                              .format(cls.token_conf["url"], cls.proxies, cls.__name__, exc)
-            #                              )
-            #
-            # except httpx.HTTPStatusError as e:
-            #     # 捕获 httpx 的状态代码错误 (captures specific status code errors from httpx)
-            #     if response.status_code == 401:
-            #         raise APIUnauthorizedError("参数验证失败，请更新 Douyin_TikTok_Download_API 配置文件中的 {0}，以匹配 {1} 新规则"
-            #                                    .format("msToken", "tiktok")
-            #                                    )
-            #
-            #     elif response.status_code == 404:
-            #         raise APINotFoundError("{0} 无法找到API端点".format("msToken"))
-            #     else:
-            #         raise APIResponseError("链接：{0}，状态码 {1}：{2} ".format(
-            #             e.response.url, e.response.status_code, e.response.text
-            #         )
-            #         )
+            except httpx.ConnectError as exc:
+                # DNS解析失败或连接被拒绝时，回退到虚假msToken
+                logger.warning(
+                    "无法连接到 TikTok msToken API，可能是网络环境问题。"
+                    "链接：{0}，异常详细信息：{1}".format(cls.token_conf["url"], exc)
+                )
+                logger.info("当前网络无法正常访问TikTok服务器，已经使用虚假msToken以继续运行。")
+                logger.info("并且TikTok相关API大概率无法正常使用，请在(/tiktok/web/config.yaml)中更新代理。")
+                logger.info("如果你不需要使用TikTok相关API，请忽略此消息。")
+                return cls.gen_false_msToken()
+
+            except httpx.RequestError as exc:
+                # 捕获所有与 httpx 请求相关的异常情况 (Captures all httpx request-related exceptions)
+                logger.warning(
+                    "请求 TikTok msToken API 时发生网络错误。"
+                    "链接：{0}，代理：{1}，异常详细信息：{2}".format(
+                        cls.token_conf["url"], cls.proxies, exc
+                    )
+                )
+                logger.info("当前网络无法正常访问TikTok服务器，已经使用虚假msToken以继续运行。")
+                logger.info("并且TikTok相关API大概率无法正常使用，请在(/tiktok/web/config.yaml)中更新代理。")
+                logger.info("如果你不需要使用TikTok相关API，请忽略此消息。")
+                return cls.gen_false_msToken()
+
+            except httpx.HTTPStatusError as e:
+                # 捕获 httpx 的状态代码错误 (captures specific status code errors from httpx)
+                if e.response.status_code == 401:
+                    raise APIUnauthorizedError(
+                        "参数验证失败，请更新 Douyin_TikTok_Download_API 配置文件中的 {0}，以匹配 {1} 新规则"
+                        .format("msToken", "tiktok")
+                    )
+                elif e.response.status_code == 404:
+                    raise APINotFoundError("{0} 无法找到API端点".format("msToken"))
+                else:
+                    raise APIResponseError(
+                        "链接：{0}，状态码 {1}：{2} ".format(
+                            e.response.url, e.response.status_code, e.response.text
+                        )
+                    )
 
             except Exception as e:
-                # 返回虚假的msToken (Return a fake msToken)
-                logger.error("生成TikTok msToken API错误：{0}".format(e))
+                # 未预期的错误，返回虚假的msToken
+                logger.error("生成TikTok msToken API未预期错误：{0}".format(e))
                 logger.info("当前网络无法正常访问TikTok服务器，已经使用虚假msToken以继续运行。")
                 logger.info("并且TikTok相关API大概率无法正常使用，请在(/tiktok/web/config.yaml)中更新代理。")
                 logger.info("如果你不需要使用TikTok相关API，请忽略此消息。")
