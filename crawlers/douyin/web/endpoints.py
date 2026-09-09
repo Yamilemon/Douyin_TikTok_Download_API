@@ -24,6 +24,9 @@ class DouyinAPIEndpoints:
     # 首页Feed (Home Feed)
     TAB_FEED = f"{DOUYIN_DOMAIN}/aweme/v1/web/tab/feed/"
 
+    # 精选栏目内容 (Featured module feed)
+    MODULE_FEED = f"{DOUYIN_DOMAIN}/aweme/v2/web/module/feed/"
+
     # 用户短信息 (User Short Info)
     USER_SHORT_INFO = f"{DOUYIN_DOMAIN}/aweme/v1/web/im/user/info/"
 

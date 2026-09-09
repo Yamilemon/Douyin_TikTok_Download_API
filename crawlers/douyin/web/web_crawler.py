@@ -44,7 +44,7 @@ from crawlers.base_crawler import BaseCrawler
 from crawlers.douyin.web.endpoints import DouyinAPIEndpoints
 # 抖音接口数据请求模型
 from crawlers.douyin.web.models import (
-    BaseRequestModel, LiveRoomRanking, PostComments,
+    BaseRequestModel, ModuleFeed, LiveRoomRanking, PostComments,
     PostCommentsReply, PostDetail, SearchVideo,
     UserProfile, UserCollection, UserLike, UserLive,
     UserLive2, UserMix, UserPost
@@ -135,6 +135,49 @@ class DouyinWebCrawler:
 
             response = await crawler.fetch_get_json(endpoint)
         return response
+
+    async def fetch_module_feed(
+            self, module_id: str = "3003101", tag_id: str = "300215",
+            count: int = 20, refresh_index: int = 1,
+            filterGids: str = "", presented_ids: str = "", pull_type: int = 2,
+            refer_id: str = "", refer_type: int = 10,
+            webid: str | None = None, install_time: int | None = None,
+            page: str = "film", csrf_token: str | None = None,
+            verify_fp: str | None = None):
+        """获取精选栏目内容，按抓包使用 POST、URL 查询参数和空请求体。"""
+        kwargs = await self.get_douyin_headers()
+        headers = dict(kwargs["headers"])
+        headers.update({
+            "Accept": "application/json, text/plain, */*",
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Referer": f"https://www.douyin.com/jingxuan/{quote(page, safe='')}",
+        })
+        cookies = {}
+        for item in headers.get("Cookie", "").split(";"):
+            key, separator, value = item.strip().partition("=")
+            if separator:
+                cookies[key] = value
+
+        params = ModuleFeed(
+            module_id=module_id, tag_id=tag_id, count=count,
+            refresh_index=refresh_index, filterGids=filterGids,
+            presented_ids=presented_ids, pull_type=pull_type,
+            refer_id=refer_id, refer_type=refer_type,
+            webid=webid, install_time=install_time,
+        ).model_dump(by_alias=True, exclude_none=True)
+        params["msToken"] = TokenManager.gen_real_msToken()
+        if cookies.get("UIFID"):
+            params["uifid"] = cookies["UIFID"]
+            headers["uifid"] = cookies["UIFID"]
+        if csrf_token:
+            headers["x-secsdk-csrf-token"] = csrf_token
+        verify_fp = verify_fp or cookies.get("s_v_web_id") or VerifyFpManager.gen_verify_fp()
+        params.update({"verifyFp": verify_fp, "fp": verify_fp})
+        a_bogus = BogusManager.ab_model_2_endpoint(
+            params, headers["User-Agent"], method="POST")
+        endpoint = f"{DouyinAPIEndpoints.MODULE_FEED}?{urlencode(params)}&a_bogus={a_bogus}"
+        async with BaseCrawler(proxies=kwargs["proxies"], crawler_headers=headers) as crawler:
+            return await crawler.fetch_post_json(endpoint)
 
     # 获取单个作品数据
     async def fetch_one_video(self, aweme_id: str):

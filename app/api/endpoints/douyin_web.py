@@ -2,7 +2,7 @@ from typing import List
 
 from crawlers.utils.logger import logger
 
-from fastapi import APIRouter, Body, Query, Request, HTTPException  # 导入FastAPI组件
+from fastapi import APIRouter, Body, Header, Query, Request, HTTPException  # 导入FastAPI组件
 from app.api.models.APIResponseModel import ResponseModel, ErrorResponseModel  # 导入响应模型
 
 from crawlers.douyin.web.web_crawler import DouyinWebCrawler  # 导入抖音Web爬虫
@@ -75,6 +75,54 @@ async def search_video(request: Request,
                                     params=dict(request.query_params),
                                     )
         raise HTTPException(status_code=status_code, detail=detail.dict())
+
+@router.get("/fetch_module_feed", response_model=ResponseModel,
+            summary="获取精选栏目内容/Get featured module feed")
+async def fetch_module_feed(
+        request: Request,
+        module_id: str = Query(default="3003101", description="栏目模块 ID / Module ID"),
+        tag_id: str = Query(default="300215", description="栏目标签 ID / Tag ID"),
+        count: int = Query(default=20, ge=1, description="请求数量 / Item count"),
+        refresh_index: int = Query(default=1, ge=0, description="连续下拉请求序号；已观察到 5→10 每次加 1；首次值未确认 / Refresh index"),
+        filterGids: str = Query(default="", description="当前栏目连续下拉均为空；保留透传，非空格式未确认 / Filter IDs"),
+        presented_ids: str = Query(default="", description="当前栏目连续下拉均为空，不必累计已采集 ID / Presented IDs"),
+        pull_type: int = Query(default=2, description="已观察到连续下拉固定为 2；首次加载值未确认 / Pull type"),
+        refer_id: str = Query(default="", description="来源 ID / Refer ID"),
+        refer_type: int = Query(default=10, description="来源类型 / Refer type"),
+        webid: str | None = Query(default=None, description="当前浏览器 webid，同一轮下拉保持不变；省略时不上送 / Session webid"),
+        install_time: int | None = Query(default=None, ge=0, description="浏览器 install_time，同一轮下拉保持不变，不填当前时间；省略时不上送 / Install time"),
+        page: str = Query(default="film", pattern=r"^[A-Za-z0-9_-]+$", description="精选页面路径，例如 film / Page slug"),
+        verify_fp: str | None = Query(default=None, min_length=1, description="可选会话指纹，同时作为 fp 和 verifyFp；默认读取 Cookie 的 s_v_web_id，再回退生成 / Session fingerprint"),
+        csrf_token: str | None = Header(default=None, alias="x-secsdk-csrf-token",
+                                      description="可选，当前会话的 CSRF 请求头 / Session CSRF header")):
+    """默认对应 `/jingxuan/film` 抓包中的栏目。
+
+    本地接口使用 GET；向抖音发送 POST，查询参数位于 URL，请求体为空。
+    返回上游完整 JSON，保留列表及可能的分页信息。
+    六次请求中 refresh_index 为 5、6、7、8、9、10；pull_type 固定为 2，
+    filterGids 和 presented_ids 始终为空，未观察到 cursor 或 offset。
+    同一轮续取保持栏目、webid、install_time、指纹和会话请求头一致；成功处理
+    一批后将 refresh_index 加 1，失败重试保持原序号。数据按 aweme_id 自行去重。
+    默认序号 1 仅为调用起点，并非已经验证的浏览器首次加载值。
+    附件仅包含请求，尚不能确认响应列表、结束标志或保证无重复/完整遍历。
+    其他栏目需传对应的
+    module_id、tag_id 和 page，单独修改 page 不会自动推导栏目 ID。
+    Cookie 使用项目配置；临时签名动态生成，未保存抓包中的会话凭据。
+    """
+    try:
+        data = await DouyinWebCrawler.fetch_module_feed(
+            module_id=module_id, tag_id=tag_id, count=count,
+            refresh_index=refresh_index, filterGids=filterGids,
+            presented_ids=presented_ids, pull_type=pull_type,
+            refer_id=refer_id, refer_type=refer_type, webid=webid,
+            install_time=install_time, page=page, csrf_token=csrf_token,
+            verify_fp=verify_fp)
+        return ResponseModel(code=200, router=request.url.path, data=data)
+    except Exception as e:
+        detail = ErrorResponseModel(code=400, router=request.url.path,
+                                    params=dict(request.query_params))
+        raise HTTPException(status_code=400, detail=detail.model_dump()) from e
+
 
 # 获取单个作品数据
 @router.get("/fetch_one_video", response_model=ResponseModel, summary="获取单个作品数据/Get single video data")

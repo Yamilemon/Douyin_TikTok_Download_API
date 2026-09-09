@@ -42,6 +42,58 @@ class BaseRequestModel(BaseModel):
     msToken: str = TokenManager.gen_real_msToken()
 
 
+class ModuleFeed(BaseModel):
+    """精选栏目 POST 查询参数；独立建模以免带入用户主页专用参数。"""
+
+    device_platform: str = "webapp"
+    aid: str = "6383"
+    channel: str = "channel_pc_web"
+    module_id: str = "3003101"
+    count: int = Field(default=20, ge=1)
+    filterGids: str = ""
+    presented_ids: str = ""
+    refresh_index: int = Field(default=1, ge=0)
+    refer_id: str = ""
+    refer_type: int = 10
+    pull_type: int = 2
+    awemePcRecRawData: str = '{"is_xigua_user":0,"danmaku_switch_status":0,"is_client":false}'
+    seo_flag: int = Field(default=0, alias="Seo-Flag")
+    install_time: int | None = Field(default=None, ge=0)
+    tag_id: str = "300215"
+    active_id: str = ""
+    is_active_tab: str = "false"
+    use_lite_type: int = 0
+    xigua_user: int = 0
+    is_out_feed: int = 1
+    enable_ad: int = 1
+    pc_client_type: int = 1
+    pc_libra_divert: str = "Windows"
+    update_version_code: str = "170400"
+    support_h265: int = 1
+    support_dash: int = 1
+    version_code: str = "170400"
+    version_name: str = "17.4.0"
+    cookie_enabled: str = "true"
+    screen_width: int = 1920
+    screen_height: int = 1080
+    browser_language: str = "zh-CN"
+    browser_platform: str = "Win32"
+    browser_name: str = "Chrome"
+    browser_version: str = "152.0.0.0"
+    browser_online: str = "true"
+    engine_name: str = "Blink"
+    engine_version: str = "152.0.0.0"
+    os_name: str = "Windows"
+    os_version: str = "10"
+    cpu_core_num: int = 12
+    device_memory: int = 16
+    platform: str = "PC"
+    downlink: str = "10"
+    effective_type: str = "4g"
+    round_trip_time: str = "0"
+    webid: str | None = None
+
+
 class BaseLiveModel(BaseModel):
     aid: str = "6383"
     app_name: str = "douyin_web"

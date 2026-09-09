@@ -292,12 +292,12 @@ class BogusManager:
 
     # 字典方法生成A-Bogus参数，感谢 @JoeanAmier 提供的纯Python版本算法。
     @classmethod
-    def ab_model_2_endpoint(cls, params: dict, user_agent: str) -> str:
+    def ab_model_2_endpoint(cls, params: dict, user_agent: str, method: str = "GET") -> str:
         if not isinstance(params, dict):
             raise TypeError("参数必须是字典类型")
 
         try:
-            ab_value = AB().get_value(params, )
+            ab_value = AB().get_value(params, method=method)
         except Exception as e:
             raise RuntimeError("生成A-Bogus失败: {0})".format(e))
 
