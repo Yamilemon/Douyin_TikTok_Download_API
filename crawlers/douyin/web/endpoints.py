@@ -44,6 +44,7 @@ class DouyinAPIEndpoints:
 
     # 综合搜索 (General Search)
     GENERAL_SEARCH = f"{DOUYIN_DOMAIN}/aweme/v1/web/general/search/single/"
+    GENERAL_SEARCH_STREAM = f"{DOUYIN_DOMAIN}/aweme/v1/web/general/search/stream/"
 
     # 视频搜索 (Video Search)
     VIDEO_SEARCH = f"{DOUYIN_DOMAIN}/aweme/v1/web/search/item/"

@@ -12,69 +12,48 @@ router = APIRouter()
 DouyinWebCrawler = DouyinWebCrawler()
 
 # 根据关键词搜索
-@router.get("/search_video", response_model=ResponseModel, summary="搜索视频/Search video by keyword")
-async def search_video(request: Request,
-                         keyword: str = Query(example="哪吒之魔童闹海", description="搜索关键词/Search keyword"),
-                         offset: int = Query(default=0, example=0, description="分页偏移量/Page offset"),
-                         count: int = Query(default=20, example=20, description="每页数量/Count per page"),
-                         sort_type: int = Query(default=0, example=0, description="排序类型/Sort type (0=综合, 1=最多点赞, 2=最新)"),
-                         publish_time: int = Query(default=0, example=0, description="发布时间/Publish time (0=不限, 1=一天内, 7=一周内, 180=半年内)"),
-                         filter_duration: int = Query(default=0, example=0, description="视频时长/Video duration (0=不限, 1-0=1分钟以内, 1-5=1-5分钟, 5-10000=5分钟以上)"),
-                         search_id: str = Query(default="", example="", description="搜索id(翻页必需)/Search id (required for pagination)"),
-                         need_filter_settings: int = Query(default=1, example=1, description="是否需要筛选设置/Need filter settings (1=第一页, 0=翻页)")):
+@router.get("/search_video", response_model=ResponseModel, summary="搜索视频/Search video")
+async def search_video(
+        request: Request,
+        keyword: str = Query(min_length=1, description="搜索关键词"),
+        offset: int = Query(default=0, ge=0, description="首屏为 0，续页填上次响应 cursor"),
+        count: int = Query(default=20, ge=1, description="请求数量，抓包为 10"),
+        sort_type: int = Query(default=0, ge=0, le=2, description="0 综合、1 最多点赞、2 最新"),
+        publish_time: int = Query(default=0, ge=0, description="0 不限、1 一天、7 一周、180 半年"),
+        filter_duration: str = Query(default="", description="不限填空或 0；0-1、1-5、5-10000；legacy 沿用原整数值"),
+        search_id: str = Query(default="", description="首次不传或传 0；续页由客户端回传首次响应的 search_id"),
+        need_filter_settings: int | None = Query(default=None, ge=0, le=1, description="默认首屏 1、续页 0；可显式覆盖"),
+        content_type: int = Query(default=1, ge=0, le=2, description="0 全部、1 视频、2 图文"),
+        search_range: int = Query(default=0, ge=0, le=3, description="0 全部、1 最近看过、2 未看过、3 关注的人"),
+        search_mode: str = Query(default="general", pattern="^(general|legacy)$", description="general: stream 首屏/single 续页；legacy: 原 search/item 接口")):
+    """返回完整搜索卡片及上游元数据，不仅返回视频。
+
+    首屏多块 data 合并，原始各块（含控制块）保存在 stream_chunks 中。
+    data.search_id 由客户端保存，续页始终回传此初始 ID；每页 log_pb.impr_id
+    仅是该页请求日志 ID。续页 offset 使用 data.cursor，是否继续看 data.has_more。
+    服务不保存关键词或翻页状态。HTTP 200 不代表上游 status_code 一定为 0。
+    Cookie 来自配置，签名每次重新计算；生成的指纹仅在当前爬虫实例内缓存。
     """
-    # [中文]
-    ### 用途:
-    - 根据关键字搜索抖音视频
-    - 支持翻页：第一页搜索返回结果中包含 `search_id`，翻页时需要传入此参数
-
-    ### 参数:
-    - keyword: 搜索关键词
-    - offset: 分页偏移量 (0, 20, 30...)
-    - count: 每页数量 (默认20, 翻页建议10)
-    - sort_type: 排序类型 (0=综合, 1=最多点赞, 2=最新)
-    - publish_time: 发布时间 (0=不限, 1=一天内, 7=一周内, 180=半年内)
-    - filter_duration: 视频时长 (0=不限, 1-0=1分钟以内, 1-5=1-5分钟, 5-10000=5分钟以上)
-    - search_id: 搜索ID (第一页不需要, 翻页时需要传第一页返回的 search_id)
-    - need_filter_settings: 是否需要筛选设置 (1=第一页, 0=翻页)
-
-    ### 返回:
-    - 视频搜索数据
-
-    # [English]
-    ### Purpose:
-    - Search Douyin videos by keyword
-    - Pagination support: First page returns `search_id`, which is required for subsequent pages
-
-    ### Parameters:
-    - keyword: Search keyword
-    - offset: Page offset (0, 20, 30...)
-    - count: Count per page (default 20, suggest 10 for pagination)
-    - sort_type: Sort type (0=Comprehensive, 1=Most liked, 2=Latest)
-    - publish_time: Publish time (0=All, 1=1 day, 7=1 week, 180=Half year)
-    - filter_duration: Video duration (0=All, 1-0=1-1min, 1-5=1-5min, 5-10000=5+min)
-    - search_id: Search ID (not needed for first page, required for pagination)
-    - need_filter_settings: Need filter settings (1=first page, 0=next pages)
-
-    ### Return:
-    - Video search data
-
-    # [示例/Example]
-    - 第一页: keyword = "哪吒之魔童闹海", offset = 0, count = 20, need_filter_settings = 1
-    - 第二页: keyword = "哪吒之魔童闹海", offset = 20, count = 10, search_id = "xxx", need_filter_settings = 0
-    """
+    if search_mode == "general":
+        if offset > 0 and search_id in ("", "0"):
+            raise HTTPException(status_code=422, detail="翻页需要回传首次搜索的 search_id")
+        if filter_duration not in ("", "0", "0-1", "1-5", "5-10000"):
+            raise HTTPException(status_code=422, detail="无效的 filter_duration")
+        if publish_time not in (0, 1, 7, 180):
+            raise HTTPException(status_code=422, detail="无效的 publish_time")
+    elif not (filter_duration or "0").isdigit():
+        raise HTTPException(status_code=422, detail="legacy 模式 filter_duration 使用原整数值")
     try:
-        data = await DouyinWebCrawler.search_video(keyword, offset, count, sort_type, publish_time, filter_duration, search_id, need_filter_settings)
-        return ResponseModel(code=200,
-                             router=request.url.path,
-                             data=data)
+        data = await DouyinWebCrawler.search_video(
+            keyword=keyword, offset=offset, count=count, sort_type=sort_type,
+            publish_time=publish_time, filter_duration=filter_duration, search_id=search_id,
+            need_filter_settings=need_filter_settings, content_type=content_type,
+            search_range=search_range, search_mode=search_mode)
+        return ResponseModel(code=200, router=request.url.path, data=data)
     except Exception as e:
-        status_code = 400
-        detail = ErrorResponseModel(code=status_code,
-                                    router=request.url.path,
-                                    params=dict(request.query_params),
-                                    )
-        raise HTTPException(status_code=status_code, detail=detail.dict())
+        detail = ErrorResponseModel(code=400, router=request.url.path,
+                                    params=dict(request.query_params))
+        raise HTTPException(status_code=400, detail=detail.model_dump()) from e
 
 @router.get("/fetch_module_feed", response_model=ResponseModel,
             summary="获取精选栏目内容/Get featured module feed")
@@ -92,7 +71,8 @@ async def fetch_module_feed(
         webid: str | None = Query(default=None, description="当前浏览器 webid，同一轮下拉保持不变；省略时不上送 / Session webid"),
         install_time: int | None = Query(default=None, ge=0, description="浏览器 install_time，同一轮下拉保持不变，不填当前时间；省略时不上送 / Install time"),
         page: str = Query(default="film", pattern=r"^[A-Za-z0-9_-]+$", description="精选页面路径，例如 film / Page slug"),
-        verify_fp: str | None = Query(default=None, min_length=1, description="可选会话指纹，同时作为 fp 和 verifyFp；默认读取 Cookie 的 s_v_web_id，再回退生成 / Session fingerprint"),
+        verify_fp: str | None = Query(default=None, min_length=1, description="优先使用的会话指纹；同步 Cookie s_v_web_id、fp、verifyFp / Session fingerprint"),
+        s_v_web_id: str | None = Query(default=None, min_length=1, description="兼容指纹参数；优先级低于 verify_fp，高于 Cookie；均缺失时生成并在当前进程实例内缓存 / Fingerprint alias"),
         csrf_token: str | None = Header(default=None, alias="x-secsdk-csrf-token",
                                       description="可选，当前会话的 CSRF 请求头 / Session CSRF header")):
     """默认对应 `/jingxuan/film` 抓包中的栏目。
@@ -116,7 +96,7 @@ async def fetch_module_feed(
             presented_ids=presented_ids, pull_type=pull_type,
             refer_id=refer_id, refer_type=refer_type, webid=webid,
             install_time=install_time, page=page, csrf_token=csrf_token,
-            verify_fp=verify_fp)
+            verify_fp=verify_fp, s_v_web_id=s_v_web_id)
         return ResponseModel(code=200, router=request.url.path, data=data)
     except Exception as e:
         detail = ErrorResponseModel(code=400, router=request.url.path,

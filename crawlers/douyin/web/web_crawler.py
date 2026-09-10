@@ -34,6 +34,7 @@
 
 
 import asyncio  # 异步I/O
+import hashlib
 import os  # 系统操作
 import time  # 时间操作
 from urllib.parse import urlencode, quote  # URL编码
@@ -42,6 +43,8 @@ import yaml  # 配置文件
 # 基础爬虫客户端和抖音API端点
 from crawlers.base_crawler import BaseCrawler
 from crawlers.douyin.web.endpoints import DouyinAPIEndpoints
+from crawlers.douyin.web.search_request import prepare_search_request
+from crawlers.douyin.web.search_response import parse_search_response
 # 抖音接口数据请求模型
 from crawlers.douyin.web.models import (
     BaseRequestModel, ModuleFeed, LiveRoomRanking, PostComments,
@@ -85,7 +88,52 @@ class DouyinWebCrawler:
 
     "-------------------------------------------------------handler接口列表-------------------------------------------------------"
 
-    async def search_video(self, keyword: str, offset: int = 0, count: int = 20, sort_type: int = 0, publish_time: int = 0, filter_duration: int = 0, search_id: str = "", need_filter_settings: int = 1):
+    async def search_video(self, keyword: str, offset: int = 0, count: int = 20,
+                           sort_type: int = 0, publish_time: int = 0,
+                           filter_duration: str = "", search_id: str = "",
+                           need_filter_settings: int | None = None,
+                           content_type: int = 1, search_range: int = 0,
+                           search_mode: str = "general"):
+        if search_mode == "legacy":
+            return await self.search_video_legacy(
+                keyword, offset, count, sort_type, publish_time, int(filter_duration or 0),
+                search_id, (1 if offset == 0 else 0) if need_filter_settings is None else need_filter_settings)
+        if offset < 0 or count < 1:
+            raise ValueError("offset 必须非负，count 必须大于 0")
+        if offset > 0 and search_id in ("", "0"):
+            raise ValueError("翻页需要回传首次搜索的 search_id")
+        kwargs = await self.get_douyin_headers()
+        headers, params, cookies = prepare_search_request(
+            kwargs["headers"], keyword, offset, count, sort_type, publish_time,
+            filter_duration, search_id, need_filter_settings, content_type, search_range)
+        # Stable browser identity for this configured session, not a random UA per page.
+        fingerprint = cookies.get("s_v_web_id")
+        if not fingerprint:
+            key = hashlib.sha256(repr((headers.get("Cookie", ""), headers.get("User-Agent", ""))).encode()).hexdigest()
+            cache = getattr(self, "_search_fingerprints", None)
+            if cache is None:
+                cache = self._search_fingerprints = {}
+            fingerprint = cache.get(key)
+            if not fingerprint:
+                fingerprint = VerifyFpManager.gen_verify_fp()
+                if len(cache) >= 128:
+                    del cache[next(iter(cache))]
+                cache[key] = fingerprint
+        cookies["s_v_web_id"] = fingerprint
+        headers["Cookie"] = "; ".join(f"{key}={value}" for key, value in cookies.items())
+        params.update(fp=fingerprint, verifyFp=fingerprint)
+        params["msToken"] = TokenManager.gen_real_msToken()
+        signature = BogusManager.ab_model_2_endpoint(params, headers["User-Agent"])
+        endpoint = (DouyinAPIEndpoints.GENERAL_SEARCH_STREAM if offset == 0
+                    else DouyinAPIEndpoints.GENERAL_SEARCH)
+        url = f"{endpoint}?{urlencode(params)}&a_bogus={signature}"
+        async with BaseCrawler(proxies=kwargs["proxies"], crawler_headers=headers) as crawler:
+            response = await crawler.fetch_response(url)
+        if response is None:
+            raise ValueError("搜索接口返回空响应")
+        return parse_search_response(response.text, stream=offset == 0, search_id=search_id)
+
+    async def search_video_legacy(self, keyword: str, offset: int = 0, count: int = 20, sort_type: int = 0, publish_time: int = 0, filter_duration: int = 0, search_id: str = "", need_filter_settings: int = 1):
         # 获取抖音的实时Cookie
         kwargs = await self.get_douyin_headers()
 
@@ -143,7 +191,7 @@ class DouyinWebCrawler:
             refer_id: str = "", refer_type: int = 10,
             webid: str | None = None, install_time: int | None = None,
             page: str = "film", csrf_token: str | None = None,
-            verify_fp: str | None = None):
+            verify_fp: str | None = None, s_v_web_id: str | None = None):
         """获取精选栏目内容，按抓包使用 POST、URL 查询参数和空请求体。"""
         kwargs = await self.get_douyin_headers()
         headers = dict(kwargs["headers"])
@@ -171,7 +219,24 @@ class DouyinWebCrawler:
             headers["uifid"] = cookies["UIFID"]
         if csrf_token:
             headers["x-secsdk-csrf-token"] = csrf_token
-        verify_fp = verify_fp or cookies.get("s_v_web_id") or VerifyFpManager.gen_verify_fp()
+        verify_fp = verify_fp or s_v_web_id or cookies.get("s_v_web_id")
+        if not verify_fp:
+            # Per-instance, bounded cache. Keep raw session cookies out of cache keys.
+            session_key = hashlib.sha256(repr((
+                headers.get("Cookie", ""), headers.get("User-Agent", ""), webid
+            )).encode("utf-8")).hexdigest()
+            cache = getattr(self, "_module_feed_fingerprints", None)
+            if cache is None:
+                cache = self._module_feed_fingerprints = {}
+            verify_fp = cache.get(session_key)
+            if not verify_fp:
+                verify_fp = VerifyFpManager.gen_verify_fp()
+                if len(cache) >= 128:
+                    del cache[next(iter(cache))]
+                cache[session_key] = verify_fp
+        # Match the Cookie and both URL fingerprint fields without changing config.
+        cookies["s_v_web_id"] = verify_fp
+        headers["Cookie"] = "; ".join(f"{key}={value}" for key, value in cookies.items())
         params.update({"verifyFp": verify_fp, "fp": verify_fp})
         a_bogus = BogusManager.ab_model_2_endpoint(
             params, headers["User-Agent"], method="POST")
